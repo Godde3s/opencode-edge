@@ -1,0 +1,13 @@
+# opencode-edge — Cloudflare Workers configuration
+# Deploy: npx wrangler deploy   (or paste worker.js into the dashboard)
+
+name = "opencode-edge"
+main = "worker.js"
+compatibility_date = "2025-03-01"
+
+# Optional — uncomment to require an API key (comma separated list):
+# [vars]
+# API_KEYS = "my-secret-key-1,my-secret-key-2"
+
+# Optional — alias incoming model names, e.g. "gpt-4o:deepseek-v4-flash-free":
+# MODEL_MAP = "gpt-4o:deepseek-v4-flash-free"
