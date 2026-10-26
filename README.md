@@ -31,7 +31,7 @@ Because it runs on Cloudflare's edge network, there is nothing to install on you
 | ⚡ | Single `worker.js` — no npm install, no bundler |
 | 🔀 | OpenAI **and** Anthropic protocols, auto-converted |
 | 🌊 | Full streaming support in both protocols (SSE ⇄ SSE) |
-| 🔐 | Optional `API_KEYS` protection — or fully open auth for local tools |
+| 🔐 | Required `API_KEYS` protection — refuses to relay until a key is configured |
 | 🗺️ | Optional `MODEL_MAP` aliasing (e.g. `gpt-4o → deepseek-v4-flash-free`) |
 | 📊 | Built-in dark status dashboard at `/` |
 | 🌍 | Global edge network — low latency from anywhere |
@@ -43,7 +43,8 @@ Because it runs on Cloudflare's edge network, there is nothing to install on you
 1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com) (no credit card needed).
 2. Go to **Workers & Pages → Create → Worker → Deploy** (the hello-world is fine).
 3. Click **Edit code**, delete everything, paste the full contents of [`worker.js`](./worker.js), click **Deploy**.
-4. Your endpoint is ready: `https://your-worker.your-subdomain.workers.dev/v1`
+4. **Settings → Variables → Add variable**: `API_KEYS` = a long random string (comma-separate several keys). Without this the worker answers `/v1` with **503** on purpose.
+5. Your endpoint is ready: `https://your-worker.your-subdomain.workers.dev/v1`
 
 **Option B — CLI:**
 
@@ -57,25 +58,25 @@ wrangler deploy
 
 ```bash
 # opencode CLI (OpenAI-compatible)
-opencode auth login        # base URL: https://<your-worker>/v1 — key: any-string
+opencode auth login        # base URL: https://<your-worker>/v1 — key: your API_KEYS value
 
 # claude code (Anthropic-compatible)
 export ANTHROPIC_BASE_URL=https://<your-worker>
-export ANTHROPIC_API_KEY=any-string
+export ANTHROPIC_API_KEY=<your API_KEYS value>
 
 # plain curl
 curl https://<your-worker>/v1/chat/completions \
-  -H "Authorization: Bearer any-string" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_KEYS" -H "Content-Type: application/json" \
   -d '{"model":"deepseek-v4-flash-free","messages":[{"role":"user","content":"hi"}]}'
 ```
 
-Lock it down by setting the `API_KEYS` variable in the dashboard (**Settings → Variables**) or in `wrangler.toml`.
+`API_KEYS` is **required**: set it in the dashboard (**Settings → Variables**) or in `wrangler.toml`. While it is unset the worker returns `503` for every `/v1` call, because otherwise anyone who finds the URL could spend your free-model quota.
 
 ## Configuration
 
 | Variable | Default | Description |
 |---|---|---|
-| `API_KEYS` | *(unset → open auth)* | Comma-separated keys; when set, requests must present one. |
+| `API_KEYS` | *(required)* | Comma-separated keys; requests must present one. Unset → `/v1` returns `503`. |
 | `MODEL_MAP` | *(unset → passthrough)* | Aliases like `"gpt-4o:deepseek-v4-flash-free"`. |
 
 ## Notes & scope

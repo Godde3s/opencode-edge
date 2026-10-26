@@ -12,9 +12,11 @@
  *   POST /v1/messages         Anthropic style -> converted to OpenAI upstream
  *                             (streaming supported, SSE translated back)
  *
- * Optional env vars (wrangler.toml [vars] or dashboard Settings > Variables):
- *   API_KEYS    comma separated list. If set, clients must send
+ * Env vars (wrangler.toml [vars] or dashboard Settings > Variables):
+ *   API_KEYS    REQUIRED, comma separated list. Clients must send
  *               "Authorization: Bearer <key>" or "x-api-key: <key>".
+ *               Without it every /v1 request is refused (503) — this worker
+ *               must never act as an unauthenticated relay for the internet.
  *   MODEL_MAP   optional "from:to,from2:to2" aliasing applied to incoming models.
  */
 
@@ -55,10 +57,15 @@ function readApiKey(request) {
   return (request.headers.get('x-api-key') || '').trim();
 }
 
+function configuredKeys(env) {
+  return ((env && env.API_KEYS) || '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+// Fail closed: an unconfigured deployment is a public relay for anyone who
+// finds the URL, so it refuses to proxy at all until API_KEYS is set.
 function authorized(request, env) {
-  const raw = (env && env.API_KEYS) || '';
-  const keys = raw.split(',').map((s) => s.trim()).filter(Boolean);
-  if (!keys.length) return true; // open auth by default (local tooling friendly)
+  const keys = configuredKeys(env);
+  if (!keys.length) return false;
   return keys.includes(readApiKey(request));
 }
 
@@ -66,7 +73,7 @@ function authorized(request, env) {
 
 function dashboard(request, env) {
   const base = new URL(request.url).origin;
-  const protectedMode = !!(env && env.API_KEYS);
+  const configured = configuredKeys(env).length > 0;
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -99,7 +106,7 @@ function dashboard(request, env) {
   <h2>Base URL</h2>
   <code class="k">${base}/v1</code>
   <h2>Auth</h2>
-  <p class="sub">${protectedMode ? 'API key required — send it as <code>Authorization: Bearer &lt;key&gt;</code> or <code>x-api-key</code>.' : 'Open auth — any API key string is accepted.'}</p>
+  <p class="sub">${configured ? 'API key required — send it as <code>Authorization: Bearer &lt;key&gt;</code> or <code>x-api-key</code>.' : '⚠️ <b>API_KEYS is not configured.</b> /v1 requests are refused with 503 until you set it (Settings → Variables).'}</p>
   <h2>Models</h2>
   <p class="sub"><a href="/v1/models">/v1/models</a> — cached for 5 minutes.</p>
   <h2>Use with opencode CLI</h2>
@@ -352,11 +359,22 @@ export default {
     if (path === '/health') return json({ ok: true, service: 'opencode-edge' });
     if (path === '/favicon.ico') return cors(new Response(null, { status: 204 }));
 
+    if (!configuredKeys(env).length) {
+      return json({
+        type: 'error',
+        error: {
+          type: 'configuration_error',
+          message: 'API_KEYS is not configured — refusing to relay. Set it in Settings > Variables.',
+        },
+      }, 503);
+    }
     if (!authorized(request, env)) {
       return json({ type: 'error', error: { type: 'authentication_error', message: 'invalid API key' } }, 401);
     }
 
-    if (path === '/v1/models') return cors(handleModels(request));
+    // handleModels is async and already applies the CORS headers itself;
+    // wrapping it in cors() here treated the Promise as a Response.
+    if (path === '/v1/models') return handleModels(request);
     if (path === '/v1/chat/completions') {
       if (request.method !== 'POST') return json({ error: { message: 'POST required' } }, 405);
       return handleChat(request, env);
